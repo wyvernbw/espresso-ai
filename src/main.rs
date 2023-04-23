@@ -29,20 +29,35 @@ enum Role {
 #[derive(serde::Serialize)]
 struct Message {
     role: Role,
-    body: String,
+    content: String,
 }
 
 impl Message {
-    fn user(body: String) -> Message {
+    fn user(content: String) -> Message {
         Message {
             role: Role::User,
-            body,
+            content,
         }
     }
-    fn assistant(body: String) -> Message {
+    fn assistant(content: String) -> Message {
         Message {
             role: Role::Assistant,
-            body,
+            content,
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct RequestData<'a> {
+    model: &'static str,
+    messages: &'a Vec<Message>,
+}
+
+impl<'a> RequestData<'a> {
+    fn turbo(conversation: &'a Vec<Message>) -> RequestData<'a> {
+        RequestData {
+            model: "gpt-3.5-turbo",
+            messages: conversation,
         }
     }
 }
@@ -53,13 +68,12 @@ fn send_message(
 ) -> Result<String, Box<dyn Error + 'static>> {
     let open_ai_key = env::var(OPENAI_API_KEY).expect("expected open ai key in .env");
     conversation.push(message);
+    let data = RequestData::turbo(conversation);
+    println!("{}", serde_json::to_string(&data)?);
     let body: String = ureq::post("https://api.openai.com/v1/chat/completions")
         .set("Content-Type", "application/json")
         .set("Authorization", &format!("Bearer {open_ai_key}"))
-        .send_json(ureq::json!({
-            "model": "gpt-3.5-turbo",
-            "messages": conversation
-        }))?
+        .send_json(data)?
         .into_string()?;
     Ok(body)
 }
