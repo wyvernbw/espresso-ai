@@ -1,14 +1,12 @@
 mod app;
 mod espresso;
-mod input;
-mod journal;
+pub(crate) mod journal;
 
-use app::KeyAction;
-use input::Events;
+use app::{AppState, Focus::BeansList, KeyAction};
+use journal::Journal;
 use std::{
-    collections::HashMap,
     error::Error,
-    io::{self, stdout},
+    io::{self},
     time::Duration,
 };
 use tui::backend::CrosstermBackend;
@@ -16,13 +14,9 @@ use tui::backend::CrosstermBackend;
 use tui::Terminal;
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event::Key, KeyCode},
+    event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
-    },
-    ExecutableCommand,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
 use dotenv::dotenv;
@@ -40,33 +34,76 @@ fn main() -> Result<(), Box<dyn Error + 'static>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let tick_rate = Duration::from_millis(200);
-    let events = Events::new(tick_rate);
+    let mut journal = Journal::new();
+    let mut state = AppState::default();
     loop {
-        app::ui(&mut terminal).expect("failed to draw ui");
-        let Ok(event) = events.next() else { break; };
+        app::ui(&mut terminal, &mut state, &journal).expect("failed to draw ui");
+
+        let Ok(event) = crossterm::event::read() else { break; };
+        if let Event::Key(key) = event {
+            if let (KeyCode::Char(c), KeyEventKind::Press) = (key.code, key.kind) {
+                if let Some(ref mut text) = state.add_beans_popup_text {
+                    text.push(c);
+                }
+            }
+        };
         let event = KeyAction::from(event);
         match event {
-            KeyAction::Quit => {
+            KeyAction::Quit if state.add_beans_popup_text.is_none() => {
                 break;
             }
-            KeyAction::AddBeans => {}
+            KeyAction::AddBeans if state.add_beans_popup_text.is_none() => {
+                state.add_beans_popup_text = Some("".to_owned());
+            }
+            KeyAction::Left => {
+                if let Some(pane) = state.focused_window.left() {
+                    state.focused_window = pane;
+                }
+            }
+            KeyAction::Right => {
+                if let Some(pane) = state.focused_window.right() {
+                    state.focused_window = pane;
+                }
+            }
+            KeyAction::Up => {
+                if let BeansList = state.focused_window {
+                    state.beans_list_state.prev(&journal);
+                }
+            }
+            KeyAction::Down => {
+                if let BeansList = state.focused_window {
+                    state.beans_list_state.next(&journal);
+                }
+            }
+            KeyAction::Cancel => {
+                if state.add_beans_popup_text.is_some() {
+                    state.add_beans_popup_text = None;
+                }
+            }
+            KeyAction::Backspace => {
+                if let Some(ref mut text) = state.add_beans_popup_text {
+                    text.pop();
+                }
+            }
+            KeyAction::Confirm => match state.add_beans_popup_text {
+                Some(ref text) if !text.is_empty() => {
+                    let key = text.to_owned();
+                    let original_len = journal.len();
+                    match journal.get(&key) {
+                        None => {
+                            journal.insert(text.to_owned(), vec![]);
+                            state.add_beans_popup_text = None;
+                        }
+                        Some(_) => {}
+                    }
+                    if original_len == 0 {
+                        state.beans_list_state.select_first();
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
-        //let action = select("Select an option: ", Action::get_list())?;
-        //if let Action::Exit = action {
-        //    break;
-        //}
-
-        //let journal: HashMap<String, Vec<espresso::Shot>> = HashMap::new();
-        //let journal = run_action(action, journal)?;
-
-        //let mut convo: Vec<Message> = vec![];
-        //let body = send_message(
-        //    &mut convo,
-        //    Message::user("Aki dies in chainsaw man get spoiled lol".to_owned()),
-        //)?;
-        //dbg!(body);
     }
 
     disable_raw_mode()?;
