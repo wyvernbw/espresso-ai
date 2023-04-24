@@ -1,6 +1,8 @@
 use std::error::Error;
 
 use crossterm::event::Event;
+use tui::widgets::Row;
+use tui::widgets::Table;
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -127,6 +129,17 @@ pub(crate) struct AppState {
     pub add_beans_popup_text: Option<String>,
 }
 
+impl AppState {
+    fn get_selected_beans(&self, journal: &Journal) -> Option<String> {
+        let BeansListState(list) = &self.beans_list_state;
+        if let Some(idx) = list.selected() {
+            journal.keys().nth(idx).map(|s| s.to_owned())
+        } else {
+            None
+        }
+    }
+}
+
 pub(crate) fn ui(
     terminal: &mut AppTerm,
     state: &mut AppState,
@@ -150,7 +163,7 @@ pub(crate) fn ui(
 
         let block = Block::default()
             .title("Espresso Ai  ")
-            .borders(Borders::TOP);
+            .borders(Borders::ALL);
         f.render_widget(block, size);
 
         let beans = Block::default()
@@ -164,17 +177,21 @@ pub(crate) fn ui(
             .keys()
             .map(|bean| ListItem::new(bean.to_owned()))
             .collect();
-        let beans_list = List::new(journal_beans).block(beans).highlight_symbol("=>");
+        let beans_list = List::new(journal_beans).block(beans).highlight_symbol("=> ").highlight_style(
+            Style::default()
+                .fg(tui::style::Color::Yellow)
+                .add_modifier(tui::style::Modifier::BOLD),
+        );
         f.render_stateful_widget(beans_list, main[0], &mut state.beans_list_state.0);
 
-        let journal_page = Block::default()
-            .title(
-                state
-                    .focused_window
-                    .get_style(Focus::JournalPage, "Journal".to_owned()),
-            )
-            .borders(Borders::NONE);
-        f.render_widget(journal_page, main[1]);
+        let journal_header = Row::new(vec!["Date", "In", "Out", "Grind", "Time", "Notes"])
+            .style(Style::default().fg(tui::style::Color::Cyan))
+            .height(1)
+            .bottom_margin(1);
+        let journal_block = Block::default().title(state.focused_window.get_style(Focus::JournalPage, "Journal".to_owned())).borders(Borders::NONE);
+        let journal_table = Table::new(vec![Row::new(vec!["hello", "world"])]).header(journal_header).block(journal_block)
+            .widths(&[Constraint::Percentage(10), Constraint::Percentage(10), Constraint::Percentage(10), Constraint::Percentage(10), Constraint::Percentage(10), Constraint::Percentage(50)]);
+        f.render_widget(journal_table, main[1]);
 
         let keymaps =
             Paragraph::new("q - quit   b - add beans   d - delete beans   c - rename beans   e - add espresso shot").block(Block::default().title("Keymaps"));
